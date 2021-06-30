@@ -1,0 +1,452 @@
+---
+title: "Liempieza de datos"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Limpieza de texto
+
+Uno de los procesos más difíciles cuando tratamos de texto es la limpieza de los datos.<b/>
+Existen varios tipos de datos para almacenar texto:<b/>
+* **String**: Puede almacenar cadenas, vectores de caracteres.<b/>
+* **Corpus**: Contiene4 cadenas con metadatos y detalles adicionales.<b/>
+* **Document-term matrix**: Es una matriz que describe documentos, donde cada fila representa un documento y cada columna un término. El valor de la matriz es la cantidad de veces que están esos términos en los documentos.<b/>
+* **Tidy text**: Hace más fácil y efectivo el tratamiento de texto. Es una tabla con un token por fila.<b/>
+
+Normalmente los pasos para tratar el texto son:<b/>
+* Llevar el texto a un formato fácil de manipular<b/>
+* Seleccionar los tokens del texto<b/>
+* Resumir el texto<b/>
+* Visualizarlo<b/>
+
+Por ejemplo, construyamos un vector de caracteres<b/>
+
+```{r }
+text <- c("Todos somos aficionados. La vida es tan corta que no da para más.", "Si no sueltas el pasado, ¿con qué mano agarras el futuro?", "Para ser feliz hay que vivir en guerra con las propias pasiones y en paz con las de los demás.", "¿Amas la vida? Pues no desperdicies el tiempo, porque es la sustancia de la que está hecho", "Hay dos maneras de vivir la vida: una como si nada fuese un milagro, la otra como si todo fuese un milagro.")
+
+length(text)
+```
+
+## Frecuencia de palabras (Función unnest_tokens)
+
+```{r }
+if (!require(tibble)) install.packages("tibble")
+library(tibble)
+library(tidyverse)
+```
+
+Llevar el texto a un dataframe (tibble). Tibble es un tipo de dataframe más fácil de manipular que los dataframe comunes, por bibliotecas como tidyverse:<b/>
+
+```{r}
+text_df <- tibble(line = 1:length(text), text = text)
+text_df
+```
+
+```{r}
+if (!require(tidytext)) install.packages("tidytext")
+library(tidytext)
+library(tidyverse)
+```
+
+###La función **unnest_tokens(dataframe, output, input, token, format, ...)**<b/>
+**output**: columna a ser creada<b/>
+**input**: columna a dividir<b/>
+**token**: "words" (default), "characters", "character_shingles", "ngrams", "skip_ngrams", "sentences", "lines", "paragraphs", "regex", "tweets" (tokenization by word that preserves usernames, hashtags, and URLS ), and "ptb" (Penn Treebank)<b/>
+**format**: "text", "man", "latex", "html", or "xml"<b/>
+**to_lower**: llevar a minúsculas, por defecto está TRUE<b/>
+
+Esta función permite separar un texto en palabras(por defecto), líneas, párrafos, o incluso en ngrams.<b/>
+
+```{r}
+
+tokens<-text_df %>%
+  unnest_tokens(word, text)
+
+length(tokens$line)
+```
+Separando por sentencia <b/>
+
+```{r}
+text_df %>%
+  unnest_tokens(word, text, token = "sentences")
+```
+```{r}
+temp<-text_df %>%
+  unnest_tokens(word, text, token = "ngrams")
+length(temp$line)
+temp
+
+```
+## Hacer un worldcloud
+```{r}
+if (!require(wordcloud2)) {install.packages("wordcloud2")}
+library(wordcloud2)
+```
+
+```{r}
+
+countWord<-tokens %>% count(word,sort = TRUE)
+```
+
+```{r}
+wordcloud2(countWord)
+```
+
+##Ver correlación de palabras
+Calculemos los bigramas (contar aparición de dos palabras seguidas)<br/>
+```{r}
+bigram_text <- text_df%>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_text
+```
+ Separemos la columna bigram en dos columnas <br/>
+```{r}
+bigram_count<-bigram_text %>%  count(bigram, sort = TRUE)
+bigram_count
+```
+
+```{r}
+bigram_count %>% 
+  mutate(bigram=reorder(bigram,n)) %>% 
+  #filter(n>1) %>% 
+  top_n(5) %>% 
+  ggplot(aes(bigram, n)) +
+  geom_col() +
+  coord_flip()
+```
+
+####Visualizar bigramas con igraph
+
+Separando el bigram en dos columnas
+```{r}
+bigram_count<-bigram_count%>% separate(bigram, c("bigram1","bigram2"), sep = " " )
+```
+ 
+```{r}
+if(!require(igraph)) install.packages("igraph")
+library(igraph)
+```
+```{r}
+bigram_graph <- bigram_count %>%
+ # filter(n > 20) %>%
+  graph_from_data_frame()
+
+bigram_graph
+```
+```{r}
+if(!require(ggraph)) install.packages("ggraph")
+library(ggraph)
+set.seed(2017)
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+```
+
+
+## Quitar stop-words
+
+Un stop_words es un conjunto de palabras que se repiten mucho en un idioma, pero no le dan significado real al contenido del texto, como los artículos, preprociones, e inclusyo algunos verbos auxiliares.<br/>
+
+Uno puede crear su propio stop_word, por ejemplo: <br/>
+
+```{r}
+myStopwords <- c("el","la","que","de", "las", "hay")
+myStopwords
+```
+
+```{r}
+tokens_clean <- tokens %>% filter(!word %in% myStopwords)
+```
+
+Volvamos a crear el wordcloud
+
+```{r}
+w<-tokens_clean %>% count(word,sort = TRUE)
+wordcloud2::wordcloud2(w)
+```
+
+
+Hay datos de stop_words en inglés, como el que trae el paquete tidytext. <br/>
+
+```{r}
+data(stop_words)
+```
+
+Para eliminar los stop_words se puede usar, como hemos visto, la función filter, o se puede utilizar la función **anti_join** también, si usamos la base stop_words:<br/>
+
+
+```{r}
+tokens %>% anti_join(stop_words) %>% count(word,sort = TRUE) %>% wordcloud2()
+```
+
+Hay también stop_words en español y otros lenguajes. El paquete **tm** tiene en varios idiomas, incluyendo el español.<br/>
+
+```{r}
+if (!require(tm)) install.packages("tm")
+```
+
+```{r}
+stop_words_spanish<-stopwords(kind = "spanish")
+stop_words_spanish
+```
+
+Apliquémoslo y creemos el wordcloud <br/>
+```{r}
+tokens %>% filter(!word %in% stop_words_spanish) %>% count(word,sort = TRUE) %>% wordcloud2()
+```
+
+También se puede añadir palabras a la base de stop_word<br/>
+```{r}
+myStopwords <- c(stopwords("spanish"),"si","pues")
+myStopwords
+```
+
+```{r}
+tokens %>% filter(!word %in% myStopwords) %>% count(word,sort = TRUE) %>% wordcloud2()
+```
+
+Podemos usar también la base que trae tidytext de stop_words
+
+```{r}
+sw<-get_stopwords("es", "snowball")
+sw
+```
+```{r}
+w<-tokens %>% anti_join(get_stopwords("es", "snowball"), by="word") %>% count(word,sort = TRUE) %>% wordcloud2::wordcloud2()
+w
+```
+
+Mostrando en un gráfico de barras las palabras que más se repiten <br/>
+
+```{r}
+temp<-tokens %>% anti_join(get_stopwords("es", "snowball"), by="word") %>% count(word,sort = TRUE)
+```
+
+
+```{r}
+temp %>% 
+  mutate(word=reorder(word,n)) %>% 
+  #filter(n>1) %>% 
+  #top_n(3) %>% 
+  ggplot(aes(word, n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+
+```
+
+##Frecuencia de palabra y documentos
+Una pregunta típica es ¿De qué trata ese documentos o texto?<br/>
+Una medida de cuán importante es una palabra en un documento puede ser la frecuencia de ella, como la hemos medido hasta ahora. A esto se le conoce como *term frequency (tf)*. <br/>
+Es posible que una palabra sea más importante en un documentos que en otro, cuando estamos analizando varios documentos. <br/>
+La técnica de stop-words es buena para eliminar las palabras comunmente usadas  en un lenguaje. Otra técnica superior a ésta, cuando trabajamos con diferentes documentos, es la conocida como frecuencia inversa de documentos (idf), que disminuye el peso para palabras comunes y le da mayor peso a las que no son comunmente usadas en una colección de documentos (colección de novelas, o colección de sitios web).<br/>
+
+$$idf(término)=ln \left(\frac{n(documentos)}{n(domentos\;con\;término)}\right)$$
+Pero el término que nos va a dar la importancia de los términos en un documento que hace parte de una colección es el tf_if, que viene incluido en la biblioteca tidytext.<br/>
+
+##Ejemplo usando textos de la novela de Jane Austen 
+(Tomado del libro: Julia Silge and David Robinson. Text Mining with R)<br/>
+
+```{r}
+library(janeaustenr)
+original_books <- austen_books()
+```
+
+```{r}
+library(stringr)
+library(tidytext)
+library(tidyverse)
+```
+
+Cantidad de frecuencia de palabras por libro.<br/>
+
+```{r}
+book_words <- original_books %>%
+  unnest_tokens(word, text)%>%
+  count(book, word, sort = TRUE) 
+```
+
+Cantidad total de palabras por libro. <br/>
+
+```{r}
+total_words <- book_words %>% 
+  group_by(book) %>% 
+  summarize(total = sum(n))
+```
+
+
+```{r}
+book_words <- left_join(book_words, total_words)
+```
+
+La función **bind_tf_idf** permite hacer el cálculo de tf, idf y una combinación de los dos <br/>
+
+```{r}
+book_words <- book_words %>%
+  bind_tf_idf(word, book, n)
+book_words
+```
+
+Términos con mayor tf-idf <br/>
+
+```{r}
+book_words %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+```
+
+Visualizándolo por novelas:<br/>
+
+```{r}
+book_words %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word)))) %>% 
+  group_by(book) %>% 
+  top_n(10) %>% 
+  ungroup %>%
+  ggplot(aes(word, tf_idf, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~book, ncol = 2, scales = "free") +
+  coord_flip()
+```
+
+
+###Adicionar una columna con el número de línea y una con el capítulo al que corresponde
+```{r}
+original_books<-original_books %>%
+  group_by(book) %>%
+  mutate(linenumber = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]",
+                                                 ignore_case = TRUE)))) %>%
+  ungroup()
+```
+
+Dividir en palabras, quitar stop_words y contar la cantidad de palabras
+
+```{r}
+tidy_books <- original_books %>% 
+  unnest_tokens(word, text)
+
+tidy_books
+```
+```{r}
+data(stop_words)
+
+tidy_books <- tidy_books %>%
+  anti_join(stop_words)
+```
+```{r}
+tidy_books %>%
+  count(word, sort = TRUE) 
+```
+Graficar palabras más importantes.
+```{r}
+library(ggplot2)
+
+tidy_books %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 600) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+```
+
+Calculando bigram y buscando relación entre ellos. <br/>
+
+```{r}
+austen_bigrams <- austen_books() %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+```
+Separando los bigramas en dos columans. </br>
+```{r}
+bigrams_separated <- austen_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+```
+
+Quitando los stop_words. </br>
+```{r}
+  bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+```
+
+Uniendo de nuevo los bigramas en una sola columna, después de quitar los stop_words. </br>
+```{r}
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+```
+Calculando tf_idf </br>
+```{r}
+bigram_tf_idf <- bigrams_united %>%
+  count(book, bigram) %>%
+  bind_tf_idf(bigram, book, n) %>%
+  arrange(desc(tf_idf))
+```
+Graficando bigramamas con mayor relevancia (mayor tf_idf) en los diferentes textos. </br>
+```{r}
+bigram_tf_idf %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(bigram = factor(bigram, levels = rev(unique(bigram)))) %>% 
+  group_by(book) %>% 
+  top_n(10) %>% 
+  ungroup %>%
+  ggplot(aes(bigram, tf_idf, fill = book)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~book, ncol = 2, scales = "free") +
+  coord_flip()
+```
+
+####Visualizar bigram en red de relaciones.
+```{r}
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+```
+```{r}
+library(igraph)
+bigram_graph <- bigram_counts %>%
+  filter(n > 20) %>%
+  graph_from_data_frame()
+```
+```{r}
+library(ggraph)
+set.seed(2)
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1)
+```
+
+```{r}
+set.seed(2)
+
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+  geom_edge_link(aes(edge_alpha = n), show.legend = FALSE,
+                 arrow = a, end_cap = circle(.07, 'inches')) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+  theme_void()
+```
+
+
+# Funciones para limpiar texto
+
+La biblioteca **tm** tiene varias funciones útiles a la hora de limpiar texto.
+
+tolower(): convierte a minúsculas
+removePunctuation(): quita todas las marcas de puntuaciones
+removeNumbers(): elimina números
+stripWhitespace(): elimina exceso de espacios en blanco
+

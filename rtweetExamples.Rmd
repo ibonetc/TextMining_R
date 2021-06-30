@@ -1,0 +1,358 @@
+---
+title: "Analizando Tweets en R"
+author: "Isis Bonet Cruz"
+date: "1 de marzo de 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## rtweet
+Requerimiento: Se necesita una cuenta en Twitter.<br/>
+
+rtweet es una biblioteca que permite descargar twitters. <br/>
+Mediante la llamada a alguna de las funciones: <br/>
+search_tweets(), get_timeline(), get_followers(), or get_favorites() se comienza una sesión interactiva via web para ingresar la cuenta de Twitter.<br/>
+
+httpuv es necesaria para establecer la conección y autentificación con twitter.
+La primera vez debe autentificarse con su usuario de twitter y esto se guarda en un fichero que se genera en Documents, para los próximos usos.<br/>
+
+```{r include=FALSE}
+load("twitterData.RData")
+```
+
+```{r results='hide'}
+if (!require(rtweet)) {install.packages("rtweet")}
+if (!require(httpuv)) {install.packages("httpuv")}
+```
+
+```{r results='hide'}
+library(rtweet)
+library(httpuv)
+```
+
+## Ejemplo de descarga de tweets con hashtag rstats
+
+Usando la función search_tweets podemos buscar los tweets que contienen el hashtag rstats, hasta 18000 tweets, sin incluir retweeted.<br/>
+Un retweet es cuando usted o alguien más comparte el tweet de otra persona para que sus seguidores puedan verlo, la función search_tweets tiene un parámetro include_rts, si está false no incluye los retweet. <br/>
+
+
+```{r eval=FALSE}
+rt <- search_tweets("#ArtificialIntelligence", n = 18000, include_rts = FALSE)
+```
+
+####Dimensiones del frame rt y columnas 
+
+```{r}
+dim(rt)
+colnames(rt)
+```
+
+#### Mostrar las primeras filas en forma de tabla
+
+```{r}
+if (!require(DT)) {install.packages("DT")}
+```
+
+```{r}
+DT::datatable(head(rt)[, c(2:5)], rownames = FALSE,options = list(pageLength = 5))
+```
+
+#### Otra forma de mostrar la tabla
+
+```{r}
+knitr::kable(head(rt[, c(2:5)]), format = "html")
+```
+
+## plot the results of tweets
+
+```{r results='hide'}
+if (!require(ggplot2)) {install.packages("ggplot2")}
+if (!require(tidyverse)) {install.packages("tidyverse")}
+library(ggplot2)
+library(stats)
+#library(dplyr)
+library(tidyverse)
+```
+
+##Vizualizar tweets, usando función ts_plot de rtweet
+
+Debe tener la biblioteca ggplot2 <br/>
+```{r}
+  rt %>% rtweet::ts_plot("30 min") +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(plot.title = ggplot2::element_text(face = "bold")) +
+  ggplot2::labs(
+    x = NULL, y = NULL,
+    title = "Frecuencia de #rstats Twitter para los últimos días",
+    subtitle = "Cantidad agregada en intervalos de 30 minutos",
+    caption = "\nSource: Data obtenidos con la API de Twitter's usando rtweet"
+  )
+```
+
+### Graficar por frecuencia la cantidad de tweets
+
+```{r}
+ggplot(rt, aes(x = rt$created_at)) +
+  geom_histogram(position = "identity", bins = 20, show.legend = FALSE)+
+  ggplot2::labs(
+    x = "Fecha", y="Tweets")
+```
+
+
+###Graficar por las diferentes fuente del tweet
+
+Primero, con la función **filter** seleccionamos sólo aquellos que tienen en la columna source, la subcadena *"Twitter"* en algún lugar del texto. <br/>
+Después se agrupa con la función **grop_by** por la columna *source* (de las fuentes ya filtradas). <br/>
+Con la función **ts_plot** graficamos, en este caso por horas (*hours*).<br/>
+La función **facet_wrap** nos ayuda a dividir los gráficos por *source*.
+
+
+```{r}
+
+rt %>%
+  dplyr::filter(stringr::str_detect(source, "Twitter")) %>% 
+  dplyr::group_by(source) %>% 
+  ts_plot(., by = "hours") + 
+  facet_wrap(. ~ source) + 
+  ggplot2::labs(
+    title = "Tweets",
+    subtitle = "Tweets agrupados por source:Twitter"
+  )
+```
+
+
+##Búsqueda por contenido <br/>
+
+Para buscar por contenido es muy parecido a buscar por hashtag, sólo que esta vez buscará la palabra en todo el texto.<br/>
+
+
+```{r eval=FALSE}
+rtAI <- search_tweets("Artificial Intelligence", n=5000)
+```
+
+El API de twitter tiene como límite buscar 250000 tweets cada 15 minutos, para requerir más se puede adicionar el parámetro retryonratelimit = TRUE <br/>
+
+```{r eval=FALSE}
+rt_analytics <- search_tweets("analytics", n = 250000, retryonratelimit = TRUE)
+```
+##Buscar por geo-localización, lookup_coords requiere un api de google maps
+Debe tener una clave de Google maps, asigna la clave a una variable GOOGLEAPI <br/>
+
+```{r echo=FALSE}
+GOOGLEAPI="AIzaSyCOmxcoWdBAqGGIZLD8gaTdqmX7_Nu3Mdc"
+```
+
+La función lookup_coords ayuda a encontrar las coordenadas de los tweets.<br/>
+
+```{r}
+rt_usa <- search_tweets(n = 1000,lang = "en", geocode = lookup_coords("usa", apikey =GOOGLEAPI), include_rts = FALSE)
+```
+
+Con la función lat_lng se calcula la latitud y longitud, a partir de las coordenadas anteriormente, creando dos columans más. <br/>
+
+```{r}
+rt_usa <- lat_lng(rt_usa)
+
+rtAI <- lat_lng(rt)
+```
+
+Como puede ver, hay muchos datos para los que no se encuentra este dato. No obstante, si queremos graficar los datos para los que se encontraron coordenadas, se puede puede utilizar el paquete maps.<br/>
+La función map permite hacer mapas del mundo, o por estados. <br/>
+
+
+```{r}
+par(mar = c(0, 0, 0, 0))
+maps::map("state", lwd = .25)
+with(rt_usa, points(lng, lat, pch = 20, cex = .75, col = rgb(0, .3, .7, .75)))
+```
+
+```{r}
+par(mar = c(0, 0, 0, 0))
+maps::map("world", lwd = .25)
+with(rtAI, points(lng, lat, pch = 20, cex = .75, col = rgb(0, .3, .7, .75)))
+```
+
+##search_users
+De manera similar, puede usar la función search_users() para buscar por usuarios. Esta función devuelve sólo un cuadro de datos de los usuarios e información sobre sus cuentas.<br/>
+```{r}
+usersM <- search_users("#Maduro",n = 500)
+```
+
+###Saber de dónde son los usuarios
+
+```{r}
+length(unique(usersM$location))
+unique(usersM$location)
+```
+
+##Visualizar los tweets por localización de los usuarios
+
+```{r}
+usersM %>%
+  ggplot(aes(location)) +
+  geom_bar() + coord_flip() +
+      labs(x = "Count",
+      y = "Location",
+      title = "Cantidad de usuarios por localización")
+```
+
+###Mostrar sólo los primeros 20, ordenaros según los que más tweets tienen por localización
+
+```{r}
+usersM %>%
+  count(location, sort = TRUE) %>%
+  mutate(location = reorder(location, n)) %>%
+  top_n(20) %>%
+  ggplot(aes(x = location, y = n)) +
+  geom_col() +
+  coord_flip() +
+      labs(x = "Count",
+      y = "Location",
+      title = "Localizaciónes con mayor cantidad de tweets")
+```
+
+
+```{r include=FALSE, eval=FALSE}
+#Quitando los que no tienen localización <br/> (Esto funciona si la localización está como NA)
+usersM %>%
+  count(location, sort = TRUE) %>%
+  mutate(location = reorder(location,n)) %>%
+  na.omit() %>%
+  top_n(20) %>%
+  ggplot(aes(x = location,y = n)) +
+  geom_col() +
+  coord_flip() +
+      labs(x = "Location",
+      y = "Count",
+      title = "Twitter users - unique locations ")
+```
+
+
+##Contar frecuencia de palabras en el texto de los tweets
+
+```{r results='hide'}
+if (!require(tidyverse)) install.packages("tidytext")
+library(tidytext)
+```
+
+```{r}
+hmtTable <- rtAI %>% 
+   unnest_tokens(word, text)
+```
+
+#Hacer tabla de frecuencia por palabras
+```{r}
+hmtTable <-hmtTable %>%
+  count(word, sort = TRUE) 
+hmtTable
+```
+
+#Hacer nube de palabras
+```{r results='hide'}
+if (!require(wordcloud2)) {install.packages("wordcloud2")}
+library(wordcloud2)
+```
+
+
+```{r}
+wordcloud2(hmtTable, size=0.7)
+```
+
+## Descargar tweets en vivo
+
+```{r eval=FALSE}
+rtlive <- stream_tweets()
+```
+
+```{r eval=FALSE}
+unique(rtlive$screen_name)
+```
+
+#Recupera la lista de cuentas que CanalRCN sigue.
+
+```{r eval=FALSE}
+rcn_fds <- get_friends("CanalRCN")
+## Datos de esa cuentas
+rcn_fds_data <- lookup_users(rcn_fds$user_id)
+```
+
+##Recupera la lista de seguidores de una cuenta
+
+```{r eval=FALSE}
+## Obtener user IDs de las cuentas de los seguidores de CanalRCN
+rcn_flw <- get_followers("CanalRCN")
+
+## Devuelve los datos de los las cuentas de estos usuarios
+rcn_flw_data <- lookup_users(rcn_flw$user_id)
+
+```
+
+Cuáles son los seguidores de RCN que tiene más seguidores? <br/>
+
+```{r}
+rcn_flw_data %>%
+  select(screen_name, followers_count, statuses_count) %>%
+  arrange(desc(followers_count)) %>%
+  top_n(10)
+```
+
+
+##Todos los seguidores (Tenga en cuenta que esto puede tomar un tiempo largo)
+
+```{r eval=FALSE}
+#Cantidad de seguidores de
+rcn <- lookup_users("CanalRCN")
+
+## Obtener todos (esto puede tardar dias, dependiendo de la cuenta)
+rcn_flw <- get_followers("CanalRCN", n = rcn$followers_count, retryonratelimit = TRUE)
+```
+
+## Get timelines
+Obtener los más recientes tweets desde RCN y CaracolTV <br/>
+
+```{r eval=FALSE}
+## IDs de cuentas seguidas por Caracol y RCN
+tmls <- get_timelines(c("CanalRCN", "CaracolTV"), n = 3200)
+```
+
+## Graficar la frecuencia de tweets para cada usuario en el tiempo
+
+```{r}
+tmls %>%
+  dplyr::group_by(screen_name) %>%
+  ts_plot("days", trim = 1L) +
+  ggplot2::geom_point() +
+  ggplot2::theme_minimal() +
+  ggplot2::theme(
+    legend.title = ggplot2::element_blank(),
+    legend.position = "bottom",
+    plot.title = ggplot2::element_text(face = "bold")) +
+  ggplot2::labs(
+    x = NULL, y = NULL,
+    title = "Frecuencias de status posteados por RCN y Caracol",
+    subtitle = "Cantidad de status agregada por días"
+  )
+```
+
+## Guardar los tweets en un csv
+
+```{r eval=FALSE}
+save_as_csv(rtAI, "tweetsAI")
+```
+
+## Recuperar los tweets guardados en el csv
+
+```{r eval=FALSE}
+rtReadCSV<-read_twitter_csv("tweetsAI.csv")
+```
+
+
+
+
+
+
+
+

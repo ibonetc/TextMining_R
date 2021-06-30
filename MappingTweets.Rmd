@@ -1,0 +1,110 @@
+---
+title: "Graficar Tweets"
+author: "Isis Bonet Cruz"
+date: "4 de marzo de 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+load("twitterData.RData")
+```
+
+#Graficando los tweets
+
+## La api de Google maps debe tener activado la geolocalizaci?n debe registrarla
+```{r echo=FALSE}
+api <- "AIzaSyBBEuBdYp3gpB3k3L_E0kbnGXr7BmVTVTQ"
+```
+
+```{r results="hide"}
+if (!require(maps)) install.packages("maps") 
+if (!require(purrr)) install.packages("purrr")
+if (!require(ggmap)) install.packages("ggmap")
+if (!require(tidyr)) install.packages("tidyr")
+library(maps)
+library(purrr)
+library(ggmap)
+library(tidyr)
+library(dplyr)
+```
+
+
+```{r results='hide'}
+#api <- Aqu? se ponen las credencias de una geocoding api
+register_google(key = api)
+getOption("ggmap")
+```
+
+
+```{r eval=FALSE}
+#Generar una nueva columna con la longitud y latitud seg?n la localicaci?n (location)
+rcn_flw_data <- rcn_flw_data %>% 
+  mutate(longlat = purrr::map(.$location, geocode)) 
+#Seleccionar algunas columnas
+rcn_flw_dataSelect <-rcn_flw_data %>%select(screen_name, created_at, followers_count, statuses_count,location, longlat)
+# Separar la columana longlat en dos columnas
+rcn_flw_dataSelect<-rcn_flw_dataSelect%>% unnest()
+# Elimnar las filas que tienen NA
+rcn_flw_dataSelect<-na.omit(rcn_flw_dataSelect)
+
+```
+
+##Generar mapa
+
+```{r results='hide'}
+if (!require(ggthemes)) install.packages("ggthemes")
+library(ggthemes)
+library(ggplot2)
+```
+El valor del alpha es para la transparencia de los puntos, 1- color normal, menor que 1 se le va dando transparencia.<br/>
+
+```{r}
+world <- ggplot() +
+  borders("world", colour = "gray85", fill = "gray80") +
+  ggthemes::theme_map()
+
+map <- world +
+  geom_point(aes(x = lon, y = lat,
+                 group=location,
+                 size = followers_count),
+             data = rcn_flw_dataSelect, colour = 'red', alpha =.3) +
+  scale_size_continuous(breaks = c(250, 500, 750, 1000)) +
+  labs(size = 'Followers')
+map
+```
+
+##Usar plotly para gr?ficos
+```{r results='hide'}
+if (!require(plotly)) install.packages("plotly") 
+if (!require(gganimate)) install.packages("gganimate")
+library(plotly)
+```
+
+Usemos el mapa creado anteriormente para mostarlo din?micamente, con ggplotly
+
+```{r echo=TRUE}
+m<-plotly::ggplotly(map, tooltip = c('group','size'))
+m
+
+```
+
+##Utilizando leaflet para visualizar el mapa
+
+
+```{r}
+if (!require(leaflet)) install.packages("leaflet") 
+library(leaflet) 
+```
+
+
+```{r}
+
+m <- leaflet(rcn_flw_dataSelect) %>%addTiles()
+
+m %>% addCircles(lng = ~lon, lat = ~lat, popup = rcn_flw_dataSelect$location, weight = 8, radius = 40, color = "#fb3004", stroke = TRUE, fillOpacity = 0.8)
+```
+
